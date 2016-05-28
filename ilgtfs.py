@@ -4,6 +4,7 @@ import io
 import datetime
 import os
 from collections import namedtuple
+import geo
 
 
 class Agency:
@@ -147,6 +148,9 @@ class Stop:
         self.location_type = location_type
         self.parent_station = parent_station
         self.zone_id = zone_id
+        self.is_train_station = None
+        self.nearest_train_station = None
+        self.distance_from_train_station = None
 
     @classmethod
     def from_csv(cls, csv_record):
@@ -314,6 +318,33 @@ class GTFS:
 
     def full_trips_filename(self):
         return os.path.join(self.filename, os.pardir, 'full_trips.txt')
+
+    def find_train_stations(self, train_agency=2):
+        train_trips = (trip for trip in self.trips.values() if trip.route.agency.agency_id == train_agency)
+        train_trip_story_ids = set(trip.trip_story_id for trip in train_trips)
+        train_station_ids = set()
+        for stop in self.stops.values():
+            stop.is_train_station = False
+        for trip_story_id in train_trip_story_ids:
+            for trip_story_stop in self.trip_stories[trip_story_id]:
+                self.stops[trip_story_stop.stop_id].is_train_station = True
+
+    def find_distance_from_train_station(self):
+        train_station_points = [(stop, geo.GeoPoint(stop.stop_lat, stop.stop_lon)) for stop in self.stops.values()
+                                if stop.is_train_station]
+        assert len(train_station_points) > 0
+
+        for stop in self.stops.values():
+            if stop.is_train_station:
+                stop.distance_from_train_station = 0
+                continue
+
+            stop_point = geo.GeoPoint(stop.stop_lat, stop.stop_lon)
+            for train_station, train_station_point in train_station_points:
+                distance = train_station_point.distance_to(stop_point)
+                if stop.distance_from_train_station is None or distance < stop.distance_from_train_station:
+                    stop.nearest_train_station = train_station
+                    stop.distance_from_train_station = distance
 
 
 if __name__ == '__main__':

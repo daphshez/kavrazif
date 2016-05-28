@@ -5,7 +5,9 @@ import datetime
 import os
 from collections import namedtuple
 import geo
+import sqlite3
 
+route_types = {0: 'LightRailway', 2: 'IsraelRail', 3: 'Bus', 4: 'Monish'}
 
 class Agency:
     def __init__(self, agency_id, agency_name):
@@ -19,9 +21,13 @@ class Agency:
 
 # route_id,agency_id,route_short_name,route_long_name,route_desc,route_type,route_color
 class Route:
-    def __init__(self, route_id, agency):
+    def __init__(self, route_id, agency, route_short_name, route_long_name, route_desc, route_type):
+        self.route_type = route_type
+        self.route_desc = route_desc
+        self.route_long_name = route_long_name
         self.route_id = route_id
         self.agency = agency
+        self.route_short_name = route_short_name
 
     def __repr__(self):
         return "<Route %d>" % self.route_id
@@ -29,7 +35,10 @@ class Route:
     @classmethod
     def from_csv(cls, csv_record, agencies):
         agency_id = int(csv_record['agency_id'])
-        return cls(int(csv_record['route_id']), agencies[agency_id])
+        return cls(int(csv_record['route_id']),
+                   agencies[agency_id],
+                   csv_record['route_short_name'], csv_record['route_long_name'],
+                   csv_record['route_desc'], int(csv_record['route_type']))
 
 
 class Trip:
@@ -90,7 +99,6 @@ class FullTrip:
                    int(csv_record['start_time']))
 
 
-# service_id,sunday,monday,tuesday,wednesday,thursday,friday,saturday,start_date,end_date
 class Service:
     weekday_names = dict(zip('monday tuesday wednesday thursday friday saturday sunday'.split(), range(7)))
 
@@ -151,6 +159,7 @@ class Stop:
         self.is_train_station = None
         self.nearest_train_station = None
         self.distance_from_train_station = None
+        self.bus_routes_stopping_here = set()
 
     @classmethod
     def from_csv(cls, csv_record):
@@ -345,6 +354,72 @@ class GTFS:
                 if stop.distance_from_train_station is None or distance < stop.distance_from_train_station:
                     stop.nearest_train_station = train_station
                     stop.distance_from_train_station = distance
+
+    def find_stop_routes(self):
+        if self.stops is None:
+            self.load_stops()
+
+        if self.trips is None:
+            self.load_full_trips()
+
+        for trip in self.trips.values():
+            for trip_story_stop in trip.trip_story:
+                self.stops[trip_story_stop.stop_id].bus_routes_stopping_here.add(trip.route)
+
+    def to_sqlite(self, filename):
+        con = sqlite3.connect(filename)
+        cur = con.cursor()
+
+        if self.agencies:
+            cur.execute('CREATE TABLE agencies (agency_id INT PRIMARY KEY , agency_name TEXT);')
+            to_db = [(agency.agency_id, agency.agency_name) for agency in self.agencies]
+            cur.executemany('INSERT INTO agencies (agency_id, agency_name) VALUES (?, ?);', to_db)
+            con.commit()
+
+        if self.routes:
+            route_short_name_length = max(len(route.route_short_name) for route in self.routes.values())
+
+            cur.execute('''CREATE TABLE routes (
+                        route_id INT PRIMARY KEY,
+                        agency INT,
+                        route_short_name CHAR(%d),
+                        route_long_name TEXT,
+                        route_desc TEXT, route_type INT)''' % route_short_name_length)
+            cur.executemany('''INSERT INTO routes
+                            (route_id, agency, route_short_name, route_long_name, route_desc, route_type)
+                            VALUES (?, ?, ?, ?, ?, ?);''',
+                            ((route.route_id, route.agency, route.route_short_name, route.route_long_name,
+                              route.route_desc, route.route_type) for route in self.routes.values()))
+            con.commit()
+
+        if self.shapes:
+            pass # skipping shapes for now
+
+        if self.services:
+            pass
+
+        if self.trips:
+            trip_id_length = max(len(trip.trip_id) for trip in self.trips.values)
+            cur.execute('''CREATE TABLE trips (
+                        route_id INT,
+                        service_id INT,
+                        trip_id CHAR(%d) PRIMARY KEY,
+                        direction_id INT,
+                        trip_story_id INT,
+                        start_time INT,)''' % trip_id_length)
+            cur.executemany('''INSERT INTO trips
+                                (route_id, service_id, trip_id, direction_id, trip_story_id, start_time)
+                                VALUES (?, ?, ?, ?, ?, ?);''',
+                            ((trip.route.route_id, trip.service.service_id, trip.trip_id,
+                              trip.direction_id, trip.trip_story_id, trip.start_time) for trip in self.trips.values()))
+            con.commit()
+
+        if self.stops:
+            pass
+
+        if self.trip_stories:
+            pass
+
 
 
 if __name__ == '__main__':

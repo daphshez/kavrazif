@@ -5,9 +5,9 @@ import datetime
 import os
 from collections import namedtuple
 import geo
-import sqlite3
 
 route_types = {0: 'LightRailway', 2: 'IsraelRail', 3: 'Bus', 4: 'Monish'}
+
 
 class Agency:
     def __init__(self, agency_id, agency_name):
@@ -365,61 +365,6 @@ class GTFS:
         for trip in self.trips.values():
             for trip_story_stop in trip.trip_story:
                 self.stops[trip_story_stop.stop_id].bus_routes_stopping_here.add(trip.route)
-
-    def to_sqlite(self, filename):
-        con = sqlite3.connect(filename)
-        cur = con.cursor()
-
-        if self.agencies:
-            cur.execute('CREATE TABLE agencies (agency_id INT PRIMARY KEY , agency_name TEXT);')
-            to_db = [(agency.agency_id, agency.agency_name) for agency in self.agencies]
-            cur.executemany('INSERT INTO agencies (agency_id, agency_name) VALUES (?, ?);', to_db)
-            con.commit()
-
-        if self.routes:
-            route_short_name_length = max(len(route.route_short_name) for route in self.routes.values())
-
-            cur.execute('''CREATE TABLE routes (
-                        route_id INT PRIMARY KEY,
-                        agency INT,
-                        route_short_name CHAR(%d),
-                        route_long_name TEXT,
-                        route_desc TEXT, route_type INT)''' % route_short_name_length)
-            cur.executemany('''INSERT INTO routes
-                            (route_id, agency, route_short_name, route_long_name, route_desc, route_type)
-                            VALUES (?, ?, ?, ?, ?, ?);''',
-                            ((route.route_id, route.agency, route.route_short_name, route.route_long_name,
-                              route.route_desc, route.route_type) for route in self.routes.values()))
-            con.commit()
-
-        if self.shapes:
-            pass # skipping shapes for now
-
-        if self.services:
-            pass
-
-        if self.trips:
-            trip_id_length = max(len(trip.trip_id) for trip in self.trips.values)
-            cur.execute('''CREATE TABLE trips (
-                        route_id INT,
-                        service_id INT,
-                        trip_id CHAR(%d) PRIMARY KEY,
-                        direction_id INT,
-                        trip_story_id INT,
-                        start_time INT,)''' % trip_id_length)
-            cur.executemany('''INSERT INTO trips
-                                (route_id, service_id, trip_id, direction_id, trip_story_id, start_time)
-                                VALUES (?, ?, ?, ?, ?, ?);''',
-                            ((trip.route.route_id, trip.service.service_id, trip.trip_id,
-                              trip.direction_id, trip.trip_story_id, trip.start_time) for trip in self.trips.values()))
-            con.commit()
-
-        if self.stops:
-            pass
-
-        if self.trip_stories:
-            pass
-
 
 
 if __name__ == '__main__':

@@ -82,7 +82,7 @@ def build_trip_stories(gtfs_filename):
             trip_story = tuple(stop_time_to_trip_story_stop(record, start_time) for record in gtfs_stop_times)
             # is it a new trip story? if yes, allocate an id and write to the trip stories file
             if trip_story not in trip_story_to_id:
-                trip_story_id = len(trip_story_to_id)
+                trip_story_id = len(trip_story_to_id) + 1
                 trip_story_to_id[trip_story] = trip_story_id
                 for trip_story_stop in trip_story:
                     f1.write("%d,%d,%d,%d,%s,%s\n" % (trip_story_id, trip_story_stop.arrival_offset,
@@ -91,8 +91,7 @@ def build_trip_stories(gtfs_filename):
                                                       trip_story_stop.pickup_type,
                                                       trip_story_stop.drop_off_type))
             # write to the file that maps trips to trip story ids
-            trip_story_id = trip_story_to_id[trip_story]
-            f2.write("%s,%s,%s,%s\n" % (trip_id, start_time_formatted, start_time, trip_story_id))
+            f2.write("%s,%s,%s,%s\n" % (trip_line, start_time_formatted, start_time, trip_story_to_id[trip_story]))
 
         print("Total number of trip stories %d" % len(trip_story_to_id))
         print("Total number of trip story points %d" % sum(len(story) for story in trip_story_to_id))

@@ -2,6 +2,8 @@ import csv
 import zipfile
 import io
 import datetime
+import os
+from collections import namedtuple
 
 
 class Agency:
@@ -26,8 +28,7 @@ class Route:
     @classmethod
     def from_csv(cls, csv_record, agencies):
         agency_id = int(csv_record['agency_id'])
-        return cls(int(csv_record['route_id']),
-                   agencies.get(agency_id, agency_id))
+        return cls(int(csv_record['route_id']), agencies[agency_id])
 
 
 class Trip:
@@ -56,6 +57,36 @@ class Trip:
                    csv_record['trip_id'],
                    int(csv_record['direction_id']),
                    shape)
+
+
+class FullTrip:
+    def __init__(self, route, service, trip_id, direction_id, trip_story_id, trip_story, start_time):
+        self.route = route
+        self.service = service
+        self.trip_id = trip_id
+        self.direction_id = direction_id
+        self.trip_story_id = trip_story_id
+        self.trip_story = trip_story
+        self.start_time = start_time
+
+    @classmethod
+    def from_csv(cls, csv_record, routes, services, trip_stories):
+        route_id = int(csv_record['route_id'])
+        route = routes[route_id]
+
+        service_id = int(csv_record['service_id'])
+        service = services[service_id]
+
+        trip_story_id = int(csv_record['trip_story'])
+        trip_story = trip_stories[trip_story_id]
+
+        return cls(route,
+                   service,
+                   csv_record['trip_id'],
+                   int(csv_record['direction_id']),
+                   trip_story_id,
+                   trip_story,
+                   int(csv_record['start_time']))
 
 
 # service_id,sunday,monday,tuesday,wednesday,thursday,friday,saturday,start_date,end_date
@@ -143,17 +174,17 @@ class Shape:
         shape.add_coordinate(point, sequence)
 
 
-class GTFS:
-    def __init__(self, agencies, routes, trips, services, shapes, stops):
-        self.shapes = shapes
-        self.agencies = agencies
-        self.routes = routes
-        self.trips = trips
-        self.services = services
-        self.stops = stops
+class TripStoryStop(namedtuple('_TripStoryStop', "arrival_offset,departure_offset,stop_id,pickup_type,drop_off_type")):
+    @classmethod
+    def from_csv(cls, csv_record):
+        trip_story_id = int(csv_record['trip_story_id'])
+        field_names = "arrival_offset,departure_offset,stop_id,pickup_type,drop_off_type".split(',')
+        fields = [csv_record[field] for field in field_names]
+        fields = [int(field) if field != '' else 0 for field in fields]
+        return trip_story_id, cls(*fields)
 
 
-def read_stop_times(reader,  trips):
+def read_stop_times(reader, trips):
     print("  reading records from file")
     records_by_trip_id = {}
     for i, record in enumerate(reader):
@@ -179,66 +210,112 @@ def read_stop_times(reader,  trips):
             trips[trip_id].stop_times = stop_times
 
 
-def load_gtfs(filename, load_trips=True, load_shapes=False, load_stops=False, load_stop_times=False):
-    with zipfile.ZipFile(filename) as z:
-        print("Loading agencies")
-        with z.open('agency.txt') as f:
-            reader = csv.DictReader(io.TextIOWrapper(f, 'utf8'))
-            agencies = {agency.agency_id: agency for agency in (Agency.from_csv(record) for record in reader)}
-        print("%d agencies loaded" % len(agencies))
+class GTFS:
+    def __init__(self, filename):
+        self.filename = filename
+        self.agencies = None
+        self.routes = None
+        self.shapes = None
+        self.services = None
+        self.trips = None
+        self.stops = None
+        self.trip_stories = None
 
-        print("Loading routes")
-        with z.open('routes.txt') as f:
-            reader = csv.DictReader(io.TextIOWrapper(f, 'utf8'))
-            routes = {route.route_id: route for route in (Route.from_csv(record, agencies) for record in reader)}
-        print("%d routes loaded" % len(routes))
+    def load_routes(self):
+        with zipfile.ZipFile(self.filename) as z:
+            print("Loading agencies")
+            with z.open('agency.txt') as f:
+                reader = csv.DictReader(io.TextIOWrapper(f, 'utf8'))
+                self.agencies = {agency.agency_id: agency for agency in (Agency.from_csv(record) for record in reader)}
+            print("%d agencies loaded" % len(self.agencies))
 
-        shapes = {}
-        if load_shapes:
+            print("Loading routes")
+            with z.open('routes.txt') as f:
+                reader = csv.DictReader(io.TextIOWrapper(f, 'utf8'))
+                self.routes = {route.route_id: route for route in (Route.from_csv(record, self.agencies)
+                                                                   for record in reader)}
+            print("%d routes loaded" % len(self.routes))
+
+    def load_shapes(self):
+        self.shapes = {}
+        with zipfile.ZipFile(self.filename) as z:
             print("Loading shapes")
             with z.open('shapes.txt') as f:
                 reader = csv.DictReader(io.TextIOWrapper(f, 'utf8'))
                 for record in reader:
-                    Shape.from_csv(record, shapes)
-            print("%d shapes loaded" % len(shapes))
+                    Shape.from_csv(record, self.shapes)
+            print("%d shapes loaded" % len(self.shapes))
 
-        if load_trips:
+    def load_services(self):
+        with zipfile.ZipFile(self.filename) as z:
             print("Loading services")
             with z.open('calendar.txt') as f:
                 reader = csv.DictReader(io.TextIOWrapper(f, 'utf8'))
-                services = {service.service_id: service for service in (Service.from_csv(record) for record in reader)}
-            print("%d services loaded" % len(services))
+                self.services = {service.service_id: service for service in
+                                 (Service.from_csv(record) for record in reader)}
+            print("%d services loaded" % len(self.services))
 
+    def load_trips(self):
+        if self.services is None:
+            self.load_services()
+
+        with zipfile.ZipFile(self.filename) as z:
             print("Loading trips")
             with z.open('trips.txt') as f:
                 reader = csv.DictReader(io.TextIOWrapper(f, 'utf8'))
                 trips = {trip.trip_id: trip for trip in (Trip.from_csv(record,
-                                                                       routes,
-                                                                       services,
-                                                                       shapes) for record in reader)}
+                                                                       self.routes,
+                                                                       self.services,
+                                                                       self.shapes) for record in reader)}
             print("%d trips loaded" % len(trips))
-        else:
-            services = None
-            trips = None
 
-        stops = None
-        if load_stops:
+    def load_stops(self):
+        with zipfile.ZipFile(self.filename) as z:
             print("Loading stops")
             with z.open('stops.txt') as f:
                 reader = csv.DictReader(io.TextIOWrapper(f, 'utf8'))
-                stops = {stop.stop_id: stop for stop in (Stop.from_csv(record) for record in reader)}
-            print("%d stops loaded" % len(stops))
+                self.stops = {stop.stop_id: stop for stop in (Stop.from_csv(record) for record in reader)}
+            print("%d stops loaded" % len(self.stops))
 
-        if load_stop_times:
-            assert load_trips
+    def load_stop_times(self):
+        if self.trips is None:
+            self.load_trips()
+        with zipfile.ZipFile(self.filename) as z:
             print("Loading stop times")
             with z.open('stop_times.txt') as f:
-                read_stop_times(csv.DictReader(io.TextIOWrapper(f, 'utf8')), trips)
+                read_stop_times(csv.DictReader(io.TextIOWrapper(f, 'utf8')), self.trips)
 
-    print("Loading GTFS finished")
-    return GTFS(agencies, routes, trips, services, shapes, stops)
+    def load_full_trips(self):
+        if self.services is None:
+            self.load_services()
+
+        if self.routes is None:
+            self.load_routes()
+
+        print("Loading trip stories")
+        self.trip_stories = {}
+        with open(self.trip_stories_filename(), encoding='utf8') as f:
+            for record in csv.DictReader(f):
+                trip_story_id, trip_story_stop = TripStoryStop.from_csv(record)
+                self.trip_stories.setdefault(trip_story_id, []).append(trip_story_stop)
+        print("%d trip_stories loaded" % len(self.trip_stories))
+
+        print("Loading full trips")
+        with open(self.full_trips_filename(), encoding='utf8') as f:
+            reader = csv.DictReader(f)
+            self.trips = {trip.trip_id: trip for trip in (FullTrip.from_csv(record,
+                                                                            self.routes, self.services,
+                                                                            self.trip_stories)
+                                                          for record in reader)}
+        print("%d full trips loaded" % len(self.trips))
+
+    def trip_stories_filename(self):
+        return os.path.join(self.filename, os.pardir, 'trip_stories.txt')
+
+    def full_trips_filename(self):
+        return os.path.join(self.filename, os.pardir, 'full_trips.txt')
 
 
 if __name__ == '__main__':
-    load_gtfs('data/gtfs_2016_05_01/israel-public-transportation.zip',
-              load_trips=True, load_stops=True, load_stop_times=True)
+    gtfs = GTFS('data/gtfs_2016_05_01/israel-public-transportation.zip')
+    gtfs.load_full_trips()

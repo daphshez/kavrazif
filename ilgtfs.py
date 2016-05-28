@@ -159,7 +159,7 @@ class Stop:
         self.is_train_station = None
         self.nearest_train_station = None
         self.distance_from_train_station = None
-        self.bus_routes_stopping_here = set()
+        self.routes_stopping_here = set()
 
     @classmethod
     def from_csv(cls, csv_record):
@@ -233,6 +233,7 @@ class GTFS:
         self.trips = None
         self.stops = None
         self.trip_stories = None
+        self.train_stations_found = False
 
     def load_routes(self):
         with zipfile.ZipFile(self.filename) as z:
@@ -328,24 +329,34 @@ class GTFS:
     def full_trips_filename(self):
         return os.path.join(self.filename, os.pardir, 'full_trips.txt')
 
-    def find_train_stations(self, train_agency=2):
-        train_trips = (trip for trip in self.trips.values() if trip.route.agency.agency_id == train_agency)
+    def find_train_stations(self):
+        if self.trips is None:
+            self.load_full_trips()
+
+        if self.stops is None:
+            self.load_stops()
+
+        print("Finding train stations")
+        train_trips = (trip for trip in self.trips.values() if trip.route.route_type == 2)
         train_trip_story_ids = set(trip.trip_story_id for trip in train_trips)
-        train_station_ids = set()
         for stop in self.stops.values():
             stop.is_train_station = False
         for trip_story_id in train_trip_story_ids:
             for trip_story_stop in self.trip_stories[trip_story_id]:
                 self.stops[trip_story_stop.stop_id].is_train_station = True
+        self.train_stations_found = True
 
     def find_distance_from_train_station(self):
+        if not self.train_stations_found:
+            self.find_train_stations()
         train_station_points = [(stop, geo.GeoPoint(stop.stop_lat, stop.stop_lon)) for stop in self.stops.values()
                                 if stop.is_train_station]
-        assert len(train_station_points) > 0
 
+        print("finding distance from train stations")
         for stop in self.stops.values():
             if stop.is_train_station:
                 stop.distance_from_train_station = 0
+                stop.nearest_train_station = stop
                 continue
 
             stop_point = geo.GeoPoint(stop.stop_lat, stop.stop_lon)
@@ -362,11 +373,34 @@ class GTFS:
         if self.trips is None:
             self.load_full_trips()
 
+        print("Finding routes for stops")
         for trip in self.trips.values():
             for trip_story_stop in trip.trip_story:
-                self.stops[trip_story_stop.stop_id].bus_routes_stopping_here.add(trip.route)
+                self.stops[trip_story_stop.stop_id].routes_stopping_here.add(trip.route)
+
+    def export_full_stops(self):
+        full_stops_filename = os.path.join(self.filename, os.pardir, 'full_stops.txt')
+        with open(full_stops_filename, 'w', encoding='utf8') as outf:
+            outf.write('stop_id,stop_code,stop_name,stop_desc,stop_lat,stop_lon,location_type,parent_station,zone_id,' +
+                       'nearest_train_station,train_station_distance,routes_here\n')
+            for stop in self.stops.values():
+                line = ','.join([
+                    str(stop.stop_id),
+                    stop.stop_code,
+                    stop.stop_name,
+                    stop.stop_desc,
+                    str(stop.stop_lat),
+                    str(stop.stop_lon),
+                    stop.location_type,
+                    stop.parent_station,
+                    stop.zone_id,
+                    str(stop.nearest_train_station.stop_id),
+                    str(int(stop.distance_from_train_station)),
+                    ' '.join(route.route_short_name for route in stop.routes_stopping_here)
+                ])
+                outf.write(line + '\n')
 
 
 if __name__ == '__main__':
-    gtfs = GTFS('data/gtfs_2016_05_01/israel-public-transportation.zip')
-    gtfs.load_full_trips()
+    g = GTFS('data/gtfs_2016_05_01/israel-public-transportation.zip')
+    g.find_train_stations()

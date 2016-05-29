@@ -10,3 +10,8 @@ Results
 -------
 There are 7962 routes and 8144 route stories. I.e. there are 194 routes with two route stories. 
 
+
+
+Tasks
+-----
+Merge bus route alternatives in train visits calculations. 

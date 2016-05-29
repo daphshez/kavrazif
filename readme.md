@@ -6,4 +6,7 @@
 [actual train data](http://otrain.org/files/)
 
 
+Results
+-------
+There are 7962 routes and 8144 route stories. I.e. there are 194 routes with two route stories. 
 

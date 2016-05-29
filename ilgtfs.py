@@ -3,13 +3,22 @@ import zipfile
 import io
 import datetime
 import os
-from collections import namedtuple
 import geo
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, relationship
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy import Column, ForeignKey, Integer, String, Date, Boolean, Float
 
 route_types = {0: 'LightRailway', 2: 'IsraelRail', 3: 'Bus', 4: 'Monish'}
 
+Base = declarative_base()
 
-class Agency:
+
+class Agency(Base):
+    __tablename__ = 'agency'
+    agency_id = Column(Integer, primary_key=True)
+    agency_name = Column(String(100), nullable=False)
+
     def __init__(self, agency_id, agency_name):
         self.agency_id = agency_id
         self.agency_name = agency_name
@@ -19,15 +28,23 @@ class Agency:
         return cls(int(csv_record['agency_id']), csv_record['agency_name'])
 
 
-# route_id,agency_id,route_short_name,route_long_name,route_desc,route_type,route_color
-class Route:
+class Route(Base):
+    __tablename__ = 'route'
+    route_id = Column(Integer, primary_key=True)
+    agency_id = Column(Integer, ForeignKey('agency.agency_id'))
+    route_short_name = Column(String(10))
+    route_long_name = Column(String(50))
+    route_desc = Column(String(50))
+    route_type = Column(Integer)
+
     def __init__(self, route_id, agency, route_short_name, route_long_name, route_desc, route_type):
-        self.route_type = route_type
-        self.route_desc = route_desc
-        self.route_long_name = route_long_name
         self.route_id = route_id
         self.agency = agency
+        self.agency_id = agency.agency_id
         self.route_short_name = route_short_name
+        self.route_long_name = route_long_name
+        self.route_desc = route_desc
+        self.route_type = route_type
 
     def __repr__(self):
         return "<Route %d>" % self.route_id
@@ -69,10 +86,20 @@ class Trip:
                    shape)
 
 
-class FullTrip:
+class FullTrip(Base):
+    __tablename__ = 'trip'
+    route_id = Column(Integer, ForeignKey('route.route_id'))
+    service_id = Column(Integer, ForeignKey('service.service_id'))
+    trip_id = Column(String(20), primary_key=True)
+    direction_id = Column(Integer)
+    trip_story_id = Column(Integer)
+    start_time = Column(Integer)
+
     def __init__(self, route, service, trip_id, direction_id, trip_story_id, trip_story, start_time):
         self.route = route
+        self.route_id = route.route_id
         self.service = service
+        self.service_id = service.service_id
         self.trip_id = trip_id
         self.direction_id = direction_id
         self.trip_story_id = trip_story_id
@@ -99,7 +126,13 @@ class FullTrip:
                    int(csv_record['start_time']))
 
 
-class Service:
+class Service(Base):
+    __tablename__ = 'service'
+    service_id = Column(Integer, primary_key=True)
+    start_date = Column(Date)
+    end_date = Column(Date)
+    # todo: handle weekedays
+
     weekday_names = dict(zip('monday tuesday wednesday thursday friday saturday sunday'.split(), range(7)))
 
     def __init__(self, service_id, days, start_date, end_date):
@@ -144,7 +177,23 @@ class StopTime:
         return cls(arrival_time, departure_time, stop_id, stop_sequence, pickup_type, drop_off_type)
 
 
-class Stop:
+class Stop(Base):
+    __tablename__ = 'stop'
+    stop_id = Column(Integer, primary_key=True)
+    stop_code = Column(String)
+    stop_name = Column(String)
+    stop_desc = Column(String)
+    stop_lat = Column(Float)
+    stop_lon = Column(Float)
+    location_type = Column(String)
+    parent_station = Column(String)
+    zone_id = Column(String)
+    is_train_station = Column(Boolean)
+    #nearest_train_station = relationship("Stop", remote_side=[stop_id])
+    distance_from_train_station = Column(Float)
+
+    # routes_stopping_here = set()
+
     def __init__(self, stop_id, stop_code, stop_name, stop_desc, stop_lat, stop_lon, location_type, parent_station,
                  zone_id):
         self.stop_id = stop_id
@@ -187,14 +236,40 @@ class Shape:
         shape.add_coordinate(point, sequence)
 
 
-class TripStoryStop(namedtuple('_TripStoryStop', "arrival_offset,departure_offset,stop_id,pickup_type,drop_off_type")):
+class TripStoryStop(Base):
+    __tablename__ = 'trip_story_stop'
+    trip_story_id = Column(Integer, primary_key=True)
+    arrival_offset = Column(Integer, primary_key=True)
+    departure_offset = Column(Integer)
+    stop_id = Column(Integer, ForeignKey('stop.stop_id'))
+    pickup_type = Column(Integer)
+    drop_off_type = Column(Integer)
+
+    def __init__(self, trip_story_id, arrival_offset, departure_offset, stop_id, pickup_type, drop_off_type):
+        self.trip_story_id = trip_story_id
+        self.arrival_offset = arrival_offset
+        self.departure_offset = departure_offset
+        self.stop_id = stop_id
+        self.pickup_type = pickup_type
+        self.drop_off_type = drop_off_type
+
+    def __hash__(self):
+        return hash(self.as_tuple())
+
+    def __eq__(self, other):
+        return self.as_tuple() == other.as_tuple()
+
+    def as_tuple(self):
+        return (self.trip_story_id, self.arrival_offset, self.departure_offset, self.stop_id, self.pickup_type,
+                self.drop_off_type)
+
     @classmethod
     def from_csv(cls, csv_record):
         trip_story_id = int(csv_record['trip_story_id'])
         field_names = "arrival_offset,departure_offset,stop_id,pickup_type,drop_off_type".split(',')
         fields = [csv_record[field] for field in field_names]
         fields = [int(field) if field != '' else 0 for field in fields]
-        return trip_story_id, cls(*fields)
+        return trip_story_id, cls(trip_story_id, *fields)
 
 
 def read_stop_times(reader, trips):
@@ -400,7 +475,34 @@ class GTFS:
                 ])
                 outf.write(line + '\n')
 
+    def to_sqlite(self, filename):
+        engine = create_engine('sqlite:///' + filename)
+        Base.metadata.drop_all(engine)
+        Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        s = Session()
+        if self.agencies:
+            s.add_all(self.agencies.values())
+            s.commit()
+        if self.routes:
+            s.add_all(self.routes.values())
+            s.commit()
+        if self.services:
+            s.add_all(self.services.values())
+            s.commit()
+        if self.trips:
+            s.add_all(self.trips.values())
+            s.commit()
+        if self.stops:
+            s.add_all(self.stops.values())
+            s.commit()
+        if self.trip_stories:
+            for trip_story in self.trip_stories.values():
+                s.add_all(trip_story)
+            s.commit()
+
 
 if __name__ == '__main__':
     g = GTFS('data/gtfs_2016_05_01/israel-public-transportation.zip')
-    g.find_train_stations()
+    g.find_distance_from_train_station()
+    g.to_sqlite('data/gtfs_2016_05_01/gtfs.sqlite3')

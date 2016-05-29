@@ -192,8 +192,6 @@ class Stop(Base):
     #nearest_train_station = relationship("Stop", remote_side=[stop_id])
     distance_from_train_station = Column(Float)
 
-    # routes_stopping_here = set()
-
     def __init__(self, stop_id, stop_code, stop_name, stop_desc, stop_lat, stop_lon, location_type, parent_station,
                  zone_id):
         self.stop_id = stop_id
@@ -209,6 +207,12 @@ class Stop(Base):
         self.nearest_train_station = None
         self.distance_from_train_station = None
         self.routes_stopping_here = set()
+
+    def __eq__(self, other):
+        return self.stop_id == other.stop_id
+
+    def __hash__(self):
+        return hash(self.stop_id)
 
     @classmethod
     def from_csv(cls, csv_record):
@@ -500,6 +504,12 @@ class GTFS:
             for trip_story in self.trip_stories.values():
                 s.add_all(trip_story)
             s.commit()
+
+    @property
+    def train_stations(self):
+        if  not self.train_stations_found:
+            self.find_train_stations()
+        return [stop for stop in self.stops.values() if stop.is_train_station]
 
 
 if __name__ == '__main__':

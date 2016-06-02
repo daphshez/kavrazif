@@ -1,3 +1,8 @@
+"""
+For each visit of a train in a station, when do the buses visit the same stations?
+"""
+
+
 import csv
 from collections import namedtuple
 import datetime

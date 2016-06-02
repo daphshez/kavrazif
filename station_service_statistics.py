@@ -1,3 +1,7 @@
+"""
+ find the number of buses that serve each station
+"""
+
 from ilgtfs import ExtendedGTFS
 from collections import defaultdict, Counter
 import os

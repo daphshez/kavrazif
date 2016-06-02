@@ -194,11 +194,9 @@ class Stop(Base):
         return hash(self.stop_id)
 
     @classmethod
-    def from_csv(cls, csv_record, field_names=None):
+    def from_csv(cls, csv_record):
         stop_id = int(csv_record['stop_id'])
-        if field_names is None:
-            field_names = "stop_code,stop_name,stop_desc,stop_lat,stop_lon,location_type,parent_station,zone_id".split(
-                ',')
+        field_names = "stop_code,stop_name,stop_desc,stop_lat,stop_lon,location_type,parent_station,zone_id".split(',')
         fields = [csv_record[field] for field in field_names]
         return cls(stop_id, *fields)
 
@@ -214,10 +212,12 @@ class FullStop(Stop):
 
     @classmethod
     def from_csv(cls, csv_record):
-        field_names = ["stop_code", "stop_name", "stop_desc", "stop_lat", "stop_lon", "location_type",
-                       "parent_station", "zone_id",
-                       "nearest_train_station", "train_station_distance", "routes_here"]
-        return super().from_csv(csv_record, field_names)
+        stop_id = int(csv_record['stop_id'])
+        field_names = "stop_code,stop_name,stop_desc,stop_lat,stop_lon,location_type,parent_station,zone_id".split(',')
+        fields = [csv_record[field] for field in field_names]
+        fields += [int(csv_record['nearest_train_station']), int(csv_record['train_station_distance'])]
+        fields += [csv_record['routes_here'].split(' ')]
+        return cls(stop_id, *fields)
 
 
 class Shape:
@@ -402,10 +402,10 @@ class ExtendedGTFS(GTFS):
         return os.path.join(self.filename, os.pardir, filename)
 
     def trip_stories_filename(self):
-        return os.path.join(self.filename, os.pardir, 'trip_stories.txt')
+        return self.at_path('trip_stories.txt')
 
     def full_trips_filename(self):
-        return os.path.join(self.filename, os.pardir, 'full_trips.txt')
+        return self.at_path('full_trips.txt')
 
     def full_stops_filename(self):
         return os.path.join(self.filename, os.pardir, 'full_stops.txt')

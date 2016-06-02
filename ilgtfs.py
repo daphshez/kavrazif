@@ -31,16 +31,17 @@ class Route(Base):
     __tablename__ = 'route'
     route_id = Column(Integer, primary_key=True)
     agency_id = Column(Integer, ForeignKey('agency.agency_id'))
-    route_short_name = Column(String(10))
+    line_number = Column(String(10))
     route_long_name = Column(String(50))
     route_desc = Column(String(50))
     route_type = Column(Integer)
 
-    def __init__(self, route_id, agency, route_short_name, route_long_name, route_desc, route_type):
+    # line number if called "route short name" in the gtfs
+    def __init__(self, route_id, agency, line_number, route_long_name, route_desc, route_type):
         self.route_id = route_id
         self.agency = agency
         self.agency_id = agency.agency_id
-        self.route_short_name = route_short_name
+        self.line_number = line_number
         self.route_long_name = route_long_name
         self.route_desc = route_desc
         self.route_type = route_type

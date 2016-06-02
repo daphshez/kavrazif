@@ -1,15 +1,17 @@
 
-implementation
---------------
-- ilgtfs - read israel gtfs file, and also extended gtfs which includes the files created by gtfs_extender
-- gtfs_extender - functions to "extend" gtfs with some generated re-usable data 
+GTFS Extender
+-------------
+GTFS extender extracts interesting data from the GTFS and dumps it to new files. 
 
-extended gtfs files documentation
----------------------------------
 ### trip stories and full trips
 
 
-### full stops
+### full_stops.txt
+Like GTFS stops.txt file, but with the following extra fields:
+
+- nearest_train_station: stop_id for the nearest train station 
+- train_station_distance: distance in meters from the train station,
+- routes_here: short names (=signed names) of the routes stopping in the station
 
 
 ### kavrazif routes 
@@ -26,16 +28,20 @@ data files from open train project
 
 
 
+
+Status
+======
 Results
 -------
-In 2016-5-1 gtfs file, 
-There are 7962 routes and 8144 route stories. I.e. there are 194 routes with two route stories. 
-I.e. - the advertised schedule isn't realistic at all, the expected travel time is the same all day\week long. 
+1. The advertised schedule isn't realistic at all, the expected travel time is the same all day\week long.  E.g. un 2016-5-1 gtfs file, 
+there are 7962 routes and 8144 route stories (there are 194 routes with two route stories.) **It would be interesting to find if any of these is binding the operators.**
+
+2. [Here's a map of bus stops up to 300 meters from train stations](< http://arcg.is/285fnu0>).
 
 
 Tasks
 -----
-* "extend gtfs" function + read extended gtfs  
+* a table of train stations with the number of buses stopping near the station every hour of the day.
 * make a list of "kav razif" routes
 * Merge bus route alternatives in train visits calculations. 
 

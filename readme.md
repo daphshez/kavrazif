@@ -44,7 +44,7 @@ there are 7962 routes and 8144 route stories (there are 194 routes with two rout
 Tasks
 -----
 * ~~a table of train stations with the number of buses stopping near the station every hour of the day.~~
-* make a list of "kav razif" routes
+* ~~make a list of "kav razif" routes~~
 * Merge bus route alternatives in train visits calculations. 
 
     from Levenshtein import distance

@@ -3,21 +3,12 @@ import zipfile
 import io
 import datetime
 import os
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy import Column, ForeignKey, Integer, String, Date, Boolean, Float
+from typing import Dict, Optional, List
 
 route_types = {0: 'LightRailway', 2: 'IsraelRail', 3: 'Bus', 4: 'Monish'}
 
-Base = declarative_base()
 
-
-class Agency(Base):
-    __tablename__ = 'agency'
-    agency_id = Column(Integer, primary_key=True)
-    agency_name = Column(String(100), nullable=False)
-
+class Agency:
     def __init__(self, agency_id, agency_name):
         self.agency_id = agency_id
         self.agency_name = agency_name
@@ -27,15 +18,7 @@ class Agency(Base):
         return cls(int(csv_record['agency_id']), csv_record['agency_name'])
 
 
-class Route(Base):
-    __tablename__ = 'route'
-    route_id = Column(Integer, primary_key=True)
-    agency_id = Column(Integer, ForeignKey('agency.agency_id'))
-    line_number = Column(String(10))
-    route_long_name = Column(String(50))
-    route_desc = Column(String(50))
-    route_type = Column(Integer)
-
+class Route:
     # line number if called "route short name" in the gtfs
     def __init__(self, route_id, agency, line_number, route_long_name, route_desc, route_type):
         self.route_id = route_id
@@ -62,6 +45,25 @@ class Route(Base):
                    agencies[agency_id],
                    csv_record['route_short_name'], csv_record['route_long_name'],
                    csv_record['route_desc'], int(csv_record['route_type']))
+
+
+class FullRoute(Route):
+    def __init__(self, route_id, agency, line_number, route_long_name, route_desc, route_type,
+                 trip_stories, days):
+        super().__init__(route_id, agency, line_number, route_long_name, route_desc, route_type)
+        self.trip_stories = trip_stories
+        self.days = days
+
+    @classmethod
+    def from_csv(cls, csv_record, agencies):
+        agency_id = int(csv_record['agency_id'])
+        trip_stories = [int(story) for story in csv_record['trip_stories'].split(' ') if story != '']
+        days = set(int(day) for day in csv_record['days'].split(' ') if day != '')
+        return cls(int(csv_record['route_id']),
+                   agencies[agency_id],
+                   csv_record['route_short_name'], csv_record['route_long_name'],
+                   csv_record['route_desc'], int(csv_record['route_type']),
+                   trip_stories, days)
 
 
 class Trip:
@@ -113,13 +115,7 @@ class FullTrip(Trip):
                    int(csv_record['start_time']))
 
 
-class Service(Base):
-    __tablename__ = 'service'
-    service_id = Column(Integer, primary_key=True)
-    start_date = Column(Date)
-    end_date = Column(Date)
-    # todo: handle weekedays
-
+class Service:
     weekday_names = dict(zip('monday tuesday wednesday thursday friday saturday sunday'.split(), range(7)))
 
     def __init__(self, service_id, days, start_date, end_date):
@@ -164,18 +160,7 @@ class StopTime:
         return cls(arrival_time, departure_time, stop_id, stop_sequence, pickup_type, drop_off_type)
 
 
-class Stop(Base):
-    __tablename__ = 'stop'
-    stop_id = Column(Integer, primary_key=True)
-    stop_code = Column(String)
-    stop_name = Column(String)
-    stop_desc = Column(String)
-    stop_lat = Column(Float)
-    stop_lon = Column(Float)
-    location_type = Column(String)
-    parent_station = Column(String)
-    zone_id = Column(String)
-
+class Stop:
     def __init__(self, stop_id, stop_code, stop_name, stop_desc, stop_lat, stop_lon, location_type, parent_station,
                  zone_id):
         self.stop_id = stop_id
@@ -204,11 +189,11 @@ class Stop(Base):
 
 class FullStop(Stop):
     def __init__(self, stop_id, stop_code, stop_name, stop_desc, stop_lat, stop_lon, location_type, parent_station,
-                 zone_id, nearest_train_station, distance_from_train_station, routes_stopping_here):
+                 zone_id, nearest_train_station_id, train_station_distance, routes_stopping_here):
         super().__init__(stop_id, stop_code, stop_name, stop_desc, stop_lat, stop_lon, location_type, parent_station,
                          zone_id)
-        self.nearest_train_station = nearest_train_station
-        self.distance_from_train_station = distance_from_train_station
+        self.nearest_train_station_id = nearest_train_station_id
+        self.train_station_distance = train_station_distance
         self.routes_stopping_here = routes_stopping_here
 
     @classmethod
@@ -293,17 +278,16 @@ def read_stop_times(reader, trips):
 
 class GTFS:
     def __init__(self, filename):
-        self.filename = filename
-        self.agencies = None
-        self.routes = None
-        self.shapes = None
-        self.services = None
-        self.trips = None
-        self.stops = None
-        self.trip_stories = None
-        self.train_stations_found = False
+        self.filename = filename    # type: str
+        self.agencies = None        # type: Optional[Dict[int, Agency]]
+        self.routes = None          # type: Optional[Dict[int, Route]]
+        self.shapes = None          # type: Optional[Dict[int, Shape]]
+        self.services = None        # type: Optional[Dict[int, Service]]
+        self.trips = None           # type: Optional[Dict[int, Trip]]
+        self.stops = None           # type: Optional[Dict[int, Stop]]
+        self.trip_stories = None    # type: Optional[Dict[int, List[TripStoryStop]]]
 
-    def load_routes(self):
+    def load_agencies(self):
         with zipfile.ZipFile(self.filename) as z:
             print("Loading agencies")
             with z.open('agency.txt') as f:
@@ -311,6 +295,11 @@ class GTFS:
                 self.agencies = {agency.agency_id: agency for agency in (Agency.from_csv(record) for record in reader)}
             print("%d agencies loaded" % len(self.agencies))
 
+    def load_routes(self):
+        if self.agencies is None:
+            self.load_agencies()
+
+        with zipfile.ZipFile(self.filename) as z:
             print("Loading routes")
             with z.open('routes.txt') as f:
                 reader = csv.DictReader(io.TextIOWrapper(f, 'utf8'))
@@ -368,34 +357,10 @@ class GTFS:
             with z.open('stop_times.txt') as f:
                 read_stop_times(csv.DictReader(io.TextIOWrapper(f, 'utf8')), self.trips)
 
-    def to_sqlite(self, filename):
-        engine = create_engine('sqlite:///' + filename)
-        Base.metadata.drop_all(engine)
-        Base.metadata.create_all(engine)
-        Session = sessionmaker(bind=engine)
-        s = Session()
-        if self.agencies:
-            s.add_all(self.agencies.values())
-            s.commit()
-        if self.routes:
-            s.add_all(self.routes.values())
-            s.commit()
-        if self.services:
-            s.add_all(self.services.values())
-            s.commit()
-        if self.trips:
-            s.add_all(self.trips.values())
-            s.commit()
-        if self.stops:
-            s.add_all(self.stops.values())
-            s.commit()
-        if self.trip_stories:
-            for trip_story in self.trip_stories.values():
-                s.add_all(trip_story)
-            s.commit()
-
 
 class ExtendedGTFS(GTFS):
+    full_routes_filename = 'full_routes.txt'
+
     def __init__(self, filename):
         super().__init__(filename)
 
@@ -411,12 +376,9 @@ class ExtendedGTFS(GTFS):
     def full_stops_filename(self):
         return os.path.join(self.filename, os.pardir, 'full_stops.txt')
 
-    def load_trips(self):
-        if self.services is None:
-            self.load_services()
-
-        if self.routes is None:
-            self.load_routes()
+    def load_trip_stories(self):
+        if self.trip_stories is not None:
+            return
 
         print("Loading trip stories")
         self.trip_stories = {}
@@ -425,6 +387,18 @@ class ExtendedGTFS(GTFS):
                 trip_story_id, trip_story_stop = TripStoryStop.from_csv(record)
                 self.trip_stories.setdefault(trip_story_id, []).append(trip_story_stop)
         print("%d trip_stories loaded" % len(self.trip_stories))
+
+    def load_trips(self):
+        if self.trips is not None:
+            return
+
+        if self.services is None:
+            self.load_services()
+
+        if self.routes is None:
+            self.load_routes()
+
+        self.load_trip_stories()
 
         print("Loading full trips")
         with open(self.full_trips_filename(), encoding='utf8') as f:
@@ -439,6 +413,8 @@ class ExtendedGTFS(GTFS):
         super().load_stops()
 
     def load_extended_stops(self):
+        if self.stops is not None:
+            return
         with open(self.full_stops_filename(), encoding='utf8') as f:
             print("Loading stops")
             reader = csv.DictReader(f)
@@ -446,7 +422,22 @@ class ExtendedGTFS(GTFS):
             print("%d stops loaded" % len(self.stops))
 
     def load_stops(self):
+        if self.stops is not None:
+            return
         self.load_extended_stops()
+
+    def load_basic_routes(self):
+        super().load_routes()
+
+    def load_routes(self):
+        if self.agencies is None:
+            self.load_agencies()
+
+        print("Loading full routes")
+        with open(self.at_path(self.full_routes_filename), 'r', encoding='utf8') as f:
+            reader = csv.DictReader(f)
+            self.routes = {route.route_id: route for route in (FullRoute.from_csv(record, self.agencies)
+                                                               for record in reader)}
 
     @property
     def train_stations(self):

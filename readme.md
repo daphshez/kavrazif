@@ -38,10 +38,12 @@ there are 7962 routes and 8144 route stories (there are 194 routes with two rout
 
 2. [Here's a map of bus stops up to 300 meters from train stations](< http://arcg.is/285fnu0>).
 
+3. [A table of the number of bus stopping at each train station, by hour](https://docs.google.com/spreadsheets/d/1aAlK9Tmp0VT0LmBvEaLj0yJ_21-UtNWyrYKBa9pjWxo/edit?usp=sharing)
+
 
 Tasks
 -----
-* a table of train stations with the number of buses stopping near the station every hour of the day.
+* ~~a table of train stations with the number of buses stopping near the station every hour of the day.~~
 * make a list of "kav razif" routes
 * Merge bus route alternatives in train visits calculations. 
 

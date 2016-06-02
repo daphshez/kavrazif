@@ -1,20 +1,17 @@
 from ilgtfs import ExtendedGTFS
 from collections import defaultdict, Counter
+import os
+from datetime import date
 
-max_distance_from_station = 500
 
-
-# todo: handle start and end date
-def station_visits(g, output_filename):
-    """
-    :param g: ilgtfs.ExtendedGTFS
-    :param output_filename: str
-    :return:
-    """
-
+def station_visits(g, output_folder, start_date, end_date, max_distance_from_station=500):
     def find_per_station_day_hour():
         print("Running find_per_station_day_hour")
-        bus_trips = (trip for trip in g.trips.values() if trip.route.route_type == 3)
+        bus_trips = [trip for trip in g.trips.values() if trip.route.route_type == 3]
+        print("  number of bus trips: %d" % len(bus_trips))
+        bus_trips = [trip for trip in bus_trips if
+                     trip.service.end_date >= start_date and trip.service.start_date <= end_date]
+        print("  number of bus trips in date range %d" % len(bus_trips))
         station_to_hourly_counter = defaultdict(lambda: Counter())
         total_visits = 0
         for trip in bus_trips:
@@ -42,6 +39,8 @@ def station_visits(g, output_filename):
 
     def export_station_hourly_data(station_hourly_data):
         print("Running export_station_hourly_data")
+        output_filename = os.path.join(output_folder, 'hourly_station_visit_sun_thur_%s_%s.txt' %
+                                       (start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')))
         with open(output_filename, 'w', encoding='utf8') as f:
             field_names = ['station_stop_id', 'station_name', 'daily_total'] + [('h%d' % h) for h in range(26)]
             f.write(','.join(field_names) + '\n')
@@ -59,4 +58,4 @@ if __name__ == '__main__':
     gtfs = ExtendedGTFS(r'data/gtfs_2016_05_25/israel-public-transportation.zip')
     gtfs.load_stops()
     gtfs.load_trips()
-    station_visits(gtfs, r'data/gtfs_2016_05_25/hourly_station_visit_statistics_sun_thur.txt')
+    station_visits(gtfs, r'data/gtfs_2016_05_25/', date(2016, 6, 1), date(2016, 6, 14))

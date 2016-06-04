@@ -225,12 +225,13 @@ class Shape:
 
 
 class TripStoryStop:
-    def __init__(self, arrival_offset, departure_offset, stop_id, pickup_type, drop_off_type):
+    def __init__(self, arrival_offset, departure_offset, stop_id, pickup_type, drop_off_type, stop_sequence=None):
         self.arrival_offset = arrival_offset
         self.departure_offset = departure_offset
         self.stop_id = stop_id
         self.pickup_type = pickup_type
         self.drop_off_type = drop_off_type
+        self.stop_sequence = stop_sequence
 
     def __hash__(self):
         return hash(self.as_tuple())
@@ -381,11 +382,18 @@ class ExtendedGTFS(GTFS):
             return
 
         print("Loading trip stories")
-        self.trip_stories = {}
+        self.trip_stories = {}      # type: Dict[int, List[TripStoryStop]]
         with open(self.trip_stories_filename(), encoding='utf8') as f:
             for record in csv.DictReader(f):
                 trip_story_id, trip_story_stop = TripStoryStop.from_csv(record)
                 self.trip_stories.setdefault(trip_story_id, []).append(trip_story_stop)
+
+        # make sure the trip stories are sorted correctly, and assign stop_sequence values
+        for story in self.trip_stories.values():
+            story.sort(key=lambda s: s.arrival_offset)
+            for stop_sequence, stop in enumerate(story):
+                stop.stop_sequence = stop_sequence + 1
+
         print("%d trip_stories loaded" % len(self.trip_stories))
 
     def load_trips(self):

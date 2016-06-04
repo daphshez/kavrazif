@@ -225,6 +225,10 @@ def find_kavrazif_routes(gtfs: ExtendedGTFS, max_distance_from_train_station=500
     gtfs.load_stops()
 
     KavRazif = namedtuple('KavRazif', 'id line_number station_id')
+    Result = namedtuple('Result', 'route,trip_story_id,trip_story_stop,kavrazif_record')
+
+    def stop_object(trip_story_stop):
+        return gtfs.stops[trip_story_stop.stop_id]
 
     def load_kavrazif_records():
         with open('data/kavrazif_lines.txt', encoding='utf8') as f:
@@ -237,11 +241,24 @@ def find_kavrazif_routes(gtfs: ExtendedGTFS, max_distance_from_train_station=500
             print("  %d kavrazif records weren't updated, missing records: %s" %
                   (len(missing_records), missing_records))
 
+    def trip_story_stops_near_stations(trip_story):
+        stops_by_nearest_station_id = defaultdict(lambda: [])
+        for stop in trip_story:
+            if stop_object(stop).train_station_distance < max_distance_from_train_station:
+                nearest_station = stop_object(stop).nearest_train_station_id
+                stops_by_nearest_station_id[nearest_station].append(stop)
+        station_to_nearest_trip_story_stop = []
+        for station_id in stops_by_nearest_station_id:
+            nearest_stop = min(stops_by_nearest_station_id[station_id],
+                               key=lambda s: stop_object(s).train_station_distance)
+            station_to_nearest_trip_story_stop.append((nearest_stop, station_id))
+        return station_to_nearest_trip_story_stop
+
     def load_route_id_and_station_id(kavrazif_records):
-        result = {}
+        result = []
         # line numbers
         line_numbers = set(record.line_number for record in kavrazif_records)
-        # possible routes
+        # routes with the correct line number
         routes = [route for route in gtfs.routes.values() if route.line_number in line_numbers]
         print("  there are %d routes with a line number match" % len(routes))
         for route in routes:
@@ -250,30 +267,26 @@ def find_kavrazif_routes(gtfs: ExtendedGTFS, max_distance_from_train_station=500
                                        if record.line_number == route.line_number}
             for trip_story_id in route.trip_stories:
                 trip_story = gtfs.trip_stories[trip_story_id]
-                # get all the stop ids for this trip
-                trip_stop_ids = (trip_story_stop.stop_id for trip_story_stop in trip_story)
-                # convert stop ids to stops
-                trip_stops = (gtfs.stops[stop_id] for stop_id in trip_stop_ids)
-                # filter stops that are near one of the possible train stations
-                trip_stops_near_stations = (stop for stop in trip_stops if
-                                            stop.nearest_train_station_id in possible_train_stations and
-                                            stop.train_station_distance < max_distance_from_train_station)
-                # add to result
-                for stop in trip_stops_near_stations:
-                    record = possible_train_stations[stop.nearest_train_station_id]
-                    result[(route, stop.nearest_train_station_id)] = record
+                for trip_story_stop, station_id in trip_story_stops_near_stations(trip_story):
+                    if station_id in possible_train_stations:
+                        r = Result(route, trip_story_id, trip_story_stop, possible_train_stations[station_id])
+                        result.append(r)
         print("  found %d route_id and train_station pairs" % len(result))
-        log_unmatched_kavrazif(kavrazif_records, set(result.values()))
-        return [(route, record) for ((route, stop), record) in result.items()]
+        return result
 
-    def export():
+    def export2():
         fields = ['route_id', 'route_desc', 'agency_id', 'agency_name', 'route_short_name', 'route_long_name',
-                  'route_type', 'kavrazif_id', 'train_station_id', 'train_station_name']
+                  'route_type', 'kavrazif_id', 'train_station_id', 'train_station_name', 'stop_sequence',
+                  'stop_sequence_from_end', 'trip_story_id']
+
+        data = load_route_id_and_station_id(load_kavrazif_records())
         with open(gtfs.at_path('kavrazif_routes.txt'), 'w', encoding='utf8') as f:
             writer = csv.DictWriter(f, fieldnames=fields, lineterminator='\n')
             writer.writeheader()
-            for route, kavrazif_record in load_route_id_and_station_id(load_kavrazif_records()):
-                station = gtfs.stops[kavrazif_record.station_id]
+            for r in data:
+                route = r.route
+                station = gtfs.stops[stop_object(r.trip_story_stop).nearest_train_station_id]
+                sequence_from_end = len(gtfs.trip_stories[r.trip_story_id]) - r.trip_story_stop.stop_sequence + 1
                 record = {
                     'route_id': route.route_id,
                     'route_desc': route.route_desc,
@@ -282,13 +295,17 @@ def find_kavrazif_routes(gtfs: ExtendedGTFS, max_distance_from_train_station=500
                     'route_short_name': route.line_number,
                     'route_long_name': route.route_long_name,
                     'route_type': route.route_type,
-                    'kavrazif_id': kavrazif_record.id,
-                    'train_station_id': kavrazif_record.station_id,
-                    'train_station_name': station.stop_name
+                    'kavrazif_id': r.kavrazif_record.id,
+                    'train_station_id': r.kavrazif_record.station_id,
+                    'train_station_name': station.stop_name,
+                    'stop_sequence': r.trip_story_stop.stop_sequence,
+                    'stop_sequence_from_end': sequence_from_end,
+                    'trip_story_id': r.trip_story_id
                 }
                 writer.writerow(record)
 
-    export()
+    export2()
+
 
 if __name__ == '__main__':
     find_kavrazif_routes(ExtendedGTFS('data/gtfs_2016_05_25/israel-public-transportation.zip'))

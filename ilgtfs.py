@@ -124,6 +124,12 @@ class Service:
         self.days = days
         self.service_id = service_id
 
+    def __eq__(self, other):
+        return self.service_id == other.service_id
+
+    def __hash__(self):
+        return hash(self.service_id)
+
     @classmethod
     def from_csv(cls, csv_record):
         service_id = int(csv_record['service_id'])

@@ -3,7 +3,8 @@ import zipfile
 import io
 import datetime
 import os
-from typing import Dict, Optional, List
+from typing import Dict, Optional
+from collections import defaultdict
 
 route_types = {0: 'LightRailway', 2: 'IsraelRail', 3: 'Bus', 4: 'Monish'}
 
@@ -79,7 +80,7 @@ class Trip:
     @classmethod
     def from_csv(cls, csv_record, routes, services, shapes):
         route = routes[int(csv_record['route_id'])]
-        service = services.get[int(csv_record['service_id'])]
+        service = services[int(csv_record['service_id'])]
         return cls(route,
                    service,
                    csv_record['trip_id'],
@@ -230,7 +231,7 @@ class Shape:
         shape.add_coordinate(point, sequence)
 
 
-class TripStoryStop:
+class RouteStoryStop:
     def __init__(self, arrival_offset, departure_offset, stop_id, pickup_type, drop_off_type, stop_sequence=None):
         self.arrival_offset = arrival_offset
         self.departure_offset = departure_offset
@@ -255,6 +256,17 @@ class TripStoryStop:
         fields = [csv_record[field] for field in field_names]
         fields = [int(field) if field != '' else 0 for field in fields]
         return trip_story_id, cls(*fields)
+
+
+class RouteStory:
+    def __init__(self, route_story_id, route_story_stops, services):
+        self.route_story_id = route_story_id
+        self.stops = route_story_stops
+        self.services = services
+
+    @classmethod
+    def from_tuple(cls, route_story_id, route_story_stops):
+        return RouteStory(route_story_id, route_story_stops, set())
 
 
 def read_stop_times(reader, trips):
@@ -285,14 +297,13 @@ def read_stop_times(reader, trips):
 
 class GTFS:
     def __init__(self, filename):
-        self.filename = filename    # type: str
-        self.agencies = None        # type: Optional[Dict[int, Agency]]
-        self.routes = None          # type: Optional[Dict[int, Route]]
-        self.shapes = None          # type: Optional[Dict[int, Shape]]
-        self.services = None        # type: Optional[Dict[int, Service]]
-        self.trips = None           # type: Optional[Dict[int, Trip]]
-        self.stops = None           # type: Optional[Dict[int, Stop]]
-        self.trip_stories = None    # type: Optional[Dict[int, List[TripStoryStop]]]
+        self.filename = filename  # type: str
+        self.agencies = None  # type: Optional[Dict[int, Agency]]
+        self.routes = None  # type: Optional[Dict[int, Route]]
+        self.shapes = None  # type: Optional[Dict[int, Shape]]
+        self.services = None  # type: Optional[Dict[int, Service]]
+        self.trips = None  # type: Optional[Dict[int, Trip]]
+        self.stops = None  # type: Optional[Dict[int, Stop]]
 
     def load_agencies(self):
         with zipfile.ZipFile(self.filename) as z:
@@ -341,11 +352,11 @@ class GTFS:
             print("Loading trips")
             with z.open('trips.txt') as f:
                 reader = csv.DictReader(io.TextIOWrapper(f, 'utf8'))
-                trips = {trip.trip_id: trip for trip in (Trip.from_csv(record,
-                                                                       self.routes,
-                                                                       self.services,
-                                                                       self.shapes) for record in reader)}
-            print("%d trips loaded" % len(trips))
+                self.trips = {trip.trip_id: trip for trip in (Trip.from_csv(record,
+                                                                            self.routes,
+                                                                            self.services,
+                                                                            self.shapes) for record in reader)}
+            print("%d trips loaded" % len(self.trips))
 
     def load_stops(self):
         with zipfile.ZipFile(self.filename) as z:
@@ -367,15 +378,15 @@ class GTFS:
 
 class ExtendedGTFS(GTFS):
     full_routes_filename = 'full_routes.txt'
+    route_story_services_filename = 'route_story_services.txt'
+    route_story_stops_files = 'route_story_stops.txt'
 
     def __init__(self, filename):
         super().__init__(filename)
+        self.route_stories = None
 
     def at_path(self, filename):
         return os.path.join(self.filename, os.pardir, filename)
-
-    def trip_stories_filename(self):
-        return self.at_path('trip_stories.txt')
 
     def full_trips_filename(self):
         return self.at_path('full_trips.txt')
@@ -383,24 +394,40 @@ class ExtendedGTFS(GTFS):
     def full_stops_filename(self):
         return os.path.join(self.filename, os.pardir, 'full_stops.txt')
 
-    def load_trip_stories(self):
-        if self.trip_stories is not None:
+    def load_route_stories(self):
+        if self.services is None:
+            self.load_services()
+
+        if self.route_stories is not None:
             return
 
-        print("Loading trip stories")
-        self.trip_stories = {}      # type: Dict[int, List[TripStoryStop]]
-        with open(self.trip_stories_filename(), encoding='utf8') as f:
+        print("Loading route stories")
+        route_story_id_to_stops = defaultdict(lambda: [])
+        with open(self.at_path(self.route_story_stops_files), encoding='utf8') as f:
             for record in csv.DictReader(f):
-                trip_story_id, trip_story_stop = TripStoryStop.from_csv(record)
-                self.trip_stories.setdefault(trip_story_id, []).append(trip_story_stop)
+                trip_story_id, trip_story_stop = RouteStoryStop.from_csv(record)
+                route_story_id_to_stops[trip_story_id].append(trip_story_stop)
 
         # make sure the trip stories are sorted correctly, and assign stop_sequence values
-        for story in self.trip_stories.values():
+        for story in route_story_id_to_stops.values():
             story.sort(key=lambda s: s.arrival_offset)
             for stop_sequence, stop in enumerate(story):
                 stop.stop_sequence = stop_sequence + 1
 
-        print("%d trip_stories loaded" % len(self.trip_stories))
+        self.route_stories = {}
+        for route_story_id, stops in route_story_id_to_stops.items():
+            self.route_stories[route_story_id] = RouteStory.from_tuple(route_story_id, stops)
+
+        # now add services
+        with open(self.at_path(self.route_story_services_filename), encoding='utf8'):
+            for record in csv.DictReader(f):
+                route_story_id, service_id = int(record['route_story_id']), int(record['stop_id'])
+                self.route_stories[route_story_id].services.append(self.services[service_id])
+
+        print("%d route_stories loaded" % len(self.route_stories))
+
+    def load_basic_trips(self):
+        super().load_trips()
 
     def load_trips(self):
         if self.trips is not None:

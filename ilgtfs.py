@@ -50,21 +50,19 @@ class Route:
 
 class FullRoute(Route):
     def __init__(self, route_id, agency, line_number, route_long_name, route_desc, route_type,
-                 trip_stories, days):
+                 route_story_ids):
         super().__init__(route_id, agency, line_number, route_long_name, route_desc, route_type)
-        self.trip_stories = trip_stories
-        self.days = days
+        self.route_story_ids = route_story_ids
 
     @classmethod
     def from_csv(cls, csv_record, agencies):
         agency_id = int(csv_record['agency_id'])
-        trip_stories = [int(story) for story in csv_record['trip_stories'].split(' ') if story != '']
-        days = set(int(day) for day in csv_record['days'].split(' ') if day != '')
+        route_story_ids = [int(story) for story in csv_record['route_stories'].split(' ') if story != '']
         return cls(int(csv_record['route_id']),
                    agencies[agency_id],
                    csv_record['route_short_name'], csv_record['route_long_name'],
                    csv_record['route_desc'], int(csv_record['route_type']),
-                   trip_stories, days)
+                   route_story_ids)
 
 
 class Trip:
@@ -89,31 +87,35 @@ class Trip:
 
 
 class FullTrip(Trip):
-    def __init__(self, route, service, trip_id, direction_id, shape, trip_story_id, trip_story, start_time):
+    def __init__(self, route, service, trip_id, direction_id, shape, route_story, start_time):
         super().__init__(route, service, trip_id, direction_id, shape)
-        self.trip_story_id = trip_story_id
-        self.trip_story = trip_story
+        self.route_story = route_story
         self.start_time = start_time
 
     @classmethod
-    def from_csv(cls, csv_record, routes, services, trip_stories):
+    def from_csv(cls, csv_record, routes, services, route_stories):
         route_id = int(csv_record['route_id'])
         route = routes[route_id]
 
         service_id = int(csv_record['service_id'])
         service = services[service_id]
 
-        trip_story_id = int(csv_record['trip_story'])
-        trip_story = trip_stories[trip_story_id]
+        route_story_id = int(csv_record['route_story'])
+        route_story = route_stories[route_story_id]
+
+        def parse_timestamp(timestamp):
+            """Returns second since start of day"""
+            # We need to manually parse because there's hours >= 24; but ain't Python doing it beautifully?
+            (hour, minute, second) = (int(f) for f in timestamp.split(':'))
+            return hour * 60 * 60 + minute * 60 + second
 
         return cls(route,
                    service,
                    csv_record['trip_id'],
                    int(csv_record['direction_id']),
                    int(csv_record['shape_id']) if csv_record['shape_id'] != '' else -1,
-                   trip_story_id,
-                   trip_story,
-                   int(csv_record['start_time']))
+                   route_story,
+                   parse_timestamp(csv_record['start_time']))
 
 
 class Service:
@@ -251,11 +253,11 @@ class RouteStoryStop:
 
     @classmethod
     def from_csv(cls, csv_record):
-        trip_story_id = int(csv_record['trip_story_id'])
+        route_story_id = int(csv_record['route_story_id'])
         field_names = "arrival_offset,departure_offset,stop_id,pickup_type,drop_off_type".split(',')
         fields = [csv_record[field] for field in field_names]
         fields = [int(field) if field != '' else 0 for field in fields]
-        return trip_story_id, cls(*fields)
+        return route_story_id, cls(*fields)
 
 
 class RouteStory:
@@ -263,6 +265,12 @@ class RouteStory:
         self.route_story_id = route_story_id
         self.stops = route_story_stops
         self.services = services
+
+    def __eq__(self, other):
+        return self.route_story_id == other.route_story_id
+
+    def __hash__(self):
+        return hash(self.route_story_id)
 
     @classmethod
     def from_tuple(cls, route_story_id, route_story_stops):
@@ -419,10 +427,10 @@ class ExtendedGTFS(GTFS):
             self.route_stories[route_story_id] = RouteStory.from_tuple(route_story_id, stops)
 
         # now add services
-        with open(self.at_path(self.route_story_services_filename), encoding='utf8'):
+        with open(self.at_path(self.route_story_services_filename), encoding='utf8') as f:
             for record in csv.DictReader(f):
-                route_story_id, service_id = int(record['route_story_id']), int(record['stop_id'])
-                self.route_stories[route_story_id].services.append(self.services[service_id])
+                route_story_id, service_id = int(record['route_story_id']), int(record['service_id'])
+                self.route_stories[route_story_id].services.add(self.services[service_id])
 
         print("%d route_stories loaded" % len(self.route_stories))
 
@@ -439,14 +447,15 @@ class ExtendedGTFS(GTFS):
         if self.routes is None:
             self.load_routes()
 
-        self.load_trip_stories()
+        if self.route_stories is None:
+            self.load_route_stories()
 
         print("Loading full trips")
         with open(self.full_trips_filename(), encoding='utf8') as f:
             reader = csv.DictReader(f)
             self.trips = {trip.trip_id: trip for trip in (FullTrip.from_csv(record,
                                                                             self.routes, self.services,
-                                                                            self.trip_stories)
+                                                                            self.route_stories)
                                                           for record in reader)}
         print("%d full trips loaded" % len(self.trips))
 

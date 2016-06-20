@@ -9,6 +9,20 @@ from datetime import date
 
 
 def station_visits(g, output_folder, start_date, end_date, max_distance_from_station=500):
+    def find_stops_near_station(route_story):
+        stops_near_stations = (stop for stop in route_story.stops
+                               if g.stops[stop.stop_id].train_station_distance < max_distance_from_station)
+        # group by nearest train station (also include the distance from the station so it will be easier to pick)
+        grouped_by_train_station = defaultdict(lambda: [])
+        for route_story_stop in stops_near_stations:
+            stop = g.stops[route_story_stop.stop_id]
+            train_station = stop.nearest_train_station_id
+            grouped_by_train_station[train_station].append((stop.train_station_distance,
+                                                            route_story_stop.stop_sequence,     # does that make sense?
+                                                            route_story_stop))
+        # return the minimum distance stop for each station
+        return [sorted(stops)[0][-1] for stops in grouped_by_train_station.values()]
+
     def find_per_station_day_hour():
         print("Running find_per_station_day_hour")
         bus_trips = [trip for trip in g.trips.values() if trip.route.route_type == 3]
@@ -19,13 +33,11 @@ def station_visits(g, output_folder, start_date, end_date, max_distance_from_sta
         station_to_hourly_counter = defaultdict(lambda: Counter())
         total_visits = 0
         for trip in bus_trips:
-            trip_story = trip.trip_story
-            stops_near_stations = [stop for stop in trip_story
-                                   if g.stops[stop.stop_id].distance_from_train_station < max_distance_from_station]
+            stops_near_stations = find_stops_near_station(trip.route_story)
             for stop in stops_near_stations:
                 hour = (trip.start_time + stop.arrival_offset) // 3600
                 for day in trip.service.days:
-                    station_to_hourly_counter[g.stops[stop.stop_id].nearest_train_station][(day, hour)] += 1
+                    station_to_hourly_counter[g.stops[stop.stop_id].nearest_train_station_id][(day, hour)] += 1
             total_visits += len(trip.service.days) * len(stops_near_stations)
         print("  done. found data for %d stations" % len(station_to_hourly_counter))
         print("  total number of buses stopping near train stations in a week %d" % total_visits)

@@ -261,9 +261,9 @@ class RouteStoryStop:
 
 
 class RouteStory:
-    def __init__(self, route_story_id, route_story_stops, services):
+    def __init__(self, route_story_id, stops, services):
         self.route_story_id = route_story_id
-        self.stops = route_story_stops
+        self.stops = stops
         self.services = services
 
     def __eq__(self, other):

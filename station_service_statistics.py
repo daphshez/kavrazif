@@ -8,20 +8,26 @@ import os
 from datetime import date
 
 
+def group(iterable, key_func):
+    res = defaultdict(lambda: [])
+    for v in iterable:
+        res[key_func(v)].append(v)
+    return res
+
+
 def station_visits(g, output_folder, start_date, end_date, max_distance_from_station=500):
     def find_stops_near_station(route_story):
         stops_near_stations = (stop for stop in route_story.stops
                                if g.stops[stop.stop_id].train_station_distance < max_distance_from_station)
-        # group by nearest train station (also include the distance from the station so it will be easier to pick)
-        grouped_by_train_station = defaultdict(lambda: [])
-        for route_story_stop in stops_near_stations:
-            stop = g.stops[route_story_stop.stop_id]
-            train_station = stop.nearest_train_station_id
-            grouped_by_train_station[train_station].append((stop.train_station_distance,
-                                                            route_story_stop.stop_sequence,     # does that make sense?
-                                                            route_story_stop))
-        # return the minimum distance stop for each station
-        return [sorted(stops)[0][-1] for stops in grouped_by_train_station.values()]
+        # group by nearest train station
+        grouped_by_train_station = group(stops_near_stations,
+                                         lambda stop: g.stops[stop.stop_id].nearest_train_station_id)
+        res = []
+        for station_route_story_stops in grouped_by_train_station.values():
+            # for each station sort by distance from station
+            station_route_story_stops.sort(key=lambda s: g.stops[s.stop_id].train_station_distance)
+            res += [s for s in station_route_story_stops if s.stop_id == station_route_story_stops[0].stop_id]
+        return res
 
     def find_per_station_day_hour():
         print("Running find_per_station_day_hour")

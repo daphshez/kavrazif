@@ -60,3 +60,5 @@ Issues
 ~~Kav Razif routes currently have multiple records for different trip stories. This probably means trip story was changed
 during the GTFS period. We need to specify dates in order to select only one.~~
 Also we currently have multiple alternatives which probably shouldn't be taken into account.
+
+

@@ -304,8 +304,9 @@ def read_stop_times(reader, trips):
 
 
 class GTFS:
-    def __init__(self, filename):
-        self.filename = filename  # type: str
+    def __init__(self, folder):
+        """Initialize with the folder that contains israel-public-transportation.zip"""
+        self.filename = os.path.join(folder, 'israel-public-transportation.zip') # type: str
         self.agencies = None  # type: Optional[Dict[int, Agency]]
         self.routes = None  # type: Optional[Dict[int, Route]]
         self.shapes = None  # type: Optional[Dict[int, Shape]]

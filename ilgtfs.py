@@ -251,6 +251,12 @@ class RouteStoryStop:
     def as_tuple(self):
         return self.arrival_offset, self.departure_offset, self.stop_id, self.pickup_type, self.drop_off_type
 
+    def __str__(self):
+        return 'stop_id=%s,stop_sequence=%s' % (self.stop_id, self.stop_sequence)
+
+    def __repr__(self):
+        return 'stop_id=%s,stop_sequence=%s' % (self.stop_id, self.stop_sequence)
+
     @classmethod
     def from_csv(cls, csv_record):
         route_story_id = int(csv_record['route_story_id'])

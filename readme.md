@@ -54,7 +54,10 @@ there are 7962 routes and 8144 route stories (there are 194 routes with two rout
 
 3. [A table of the number of bus stopping at each train station, by hour](https://docs.google.com/spreadsheets/d/1aAlK9Tmp0VT0LmBvEaLj0yJ_21-UtNWyrYKBa9pjWxo/edit?usp=sharing)
 
-4. Most of the Kav Razif line start\end at the train station. Exceptions: Bet Yehosha lines 11, 12, Binyamina lines 
+4. [A map of all stops from which you can arrive to a train station, with planned travel time of up to 30 minutes. 
+ Only includes stops with at least 5 buses stopping every day. Not including data for the busiest train stations](http://arcg.is/292ifCF]
+
+5. Most of the Kav Razif line start\end at the train station. Exceptions: Bet Yehosha lines 11, 12, Binyamina lines 
    23, 24 and Kfar Saba lines 40 & 41
 
 
